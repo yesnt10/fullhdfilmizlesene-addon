@@ -1,5 +1,5 @@
 import axios from "axios";
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 
 const BASE = "https://www.fullhdfilmizlesene.tv";
 
