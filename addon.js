@@ -293,6 +293,15 @@ builder.defineCatalogHandler(async (args) => {
             movies.forEach(movie => {
                 if (movie.links && movie.links[0]) {
                     movieUrlCache.set(movie.id, movie.links[0]);
+                    console.log(`[CACHE] Added: ${movie.id}`);
+                }
+            });
+        } else if (movies.length > 0) {
+            // Diğer sayfalar için de URL'leri cache'e ekle
+            movies.forEach(movie => {
+                if (movie.links && movie.links[0]) {
+                    movieUrlCache.set(movie.id, movie.links[0]);
+                    console.log(`[CACHE] Added (page ${Math.floor(skip/20) + 1}): ${movie.id}`);
                 }
             });
         }
@@ -319,39 +328,60 @@ builder.defineCatalogHandler(async (args) => {
 
 // Stream handler
 builder.defineStreamHandler(async (args) => {
-    console.log('[HANDLER] Stream request:', args);
+    console.log('[HANDLER] ==========================================');
+    console.log('[HANDLER] Stream request received');
+    console.log('[HANDLER] ID:', args.id);
+    console.log('[HANDLER] Type:', args.type);
+    console.log('[HANDLER] ==========================================');
     
     if (args.type === 'movie' && args.id.startsWith('fhd_')) {
         try {
             // Cache'den URL al
             let movieUrl = movieUrlCache.get(args.id);
+            console.log('[HANDLER] Cache lookup result:', movieUrl ? 'FOUND' : 'NOT FOUND');
+            console.log('[HANDLER] Cache size:', movieUrlCache.size);
             
             // Cache'de yoksa catalog'dan bul
             if (!movieUrl) {
-                console.log('[HANDLER] Movie URL not in cache, fetching catalog...');
+                console.log('[HANDLER] Searching in fresh catalog...');
                 const movies = await fetchMovieCatalog(0);
+                console.log('[HANDLER] Catalog returned', movies.length, 'movies');
+                
                 const movie = movies.find(m => m.id === args.id);
                 
-                if (movie && movie.links && movie.links[0]) {
-                    movieUrl = movie.links[0];
-                    movieUrlCache.set(args.id, movieUrl);
+                if (movie) {
+                    console.log('[HANDLER] Found movie:', movie.name);
+                    if (movie.links && movie.links[0]) {
+                        movieUrl = movie.links[0];
+                        movieUrlCache.set(args.id, movieUrl);
+                        console.log('[HANDLER] Saved to cache:', movieUrl);
+                    }
+                } else {
+                    console.log('[HANDLER] Movie not found in catalog!');
+                    console.log('[HANDLER] Looking for ID:', args.id);
+                    console.log('[HANDLER] Available IDs sample:', movies.slice(0, 3).map(m => m.id));
                 }
             }
             
             if (!movieUrl) {
-                console.log('[HANDLER] Movie URL not found');
-                return { streams: [] };
+                console.log('[HANDLER] ERROR: Movie URL could not be found');
+                return { 
+                    streams: [{
+                        name: '⚠️ Film Bulunamadı',
+                        title: 'Film bağlantısı bulunamadı',
+                        url: BASE_URL
+                    }]
+                };
             }
 
-            console.log(`[HANDLER] Getting streams for: ${movieUrl}`);
+            console.log(`[HANDLER] Fetching streams from: ${movieUrl}`);
             const streamLinks = await getStreamLinks(movieUrl);
+            console.log(`[HANDLER] Found ${streamLinks.length} stream link(s)`);
             
             if (streamLinks.length === 0) {
                 console.log('[HANDLER] No streams found, returning external link');
-                // Hiç stream bulunamadıysa, sayfa linkini göster
                 return {
                     streams: [{
-                        url: movieUrl,
                         name: '🌐 Tarayıcıda Aç',
                         title: 'Film sayfasını tarayıcıda açar',
                         externalUrl: movieUrl
@@ -360,32 +390,42 @@ builder.defineStreamHandler(async (args) => {
             }
             
             const streams = streamLinks.map((url, index) => {
-                // Stream tipini belirle
                 let name = '📺 Kaynak ' + (index + 1);
                 if (url.includes('.m3u8')) {
                     name += ' (HLS)';
                 } else if (url.includes('.mp4')) {
                     name += ' (MP4)';
-                } else if (url.includes('iframe')) {
+                } else if (url.includes('iframe') || url.includes('embed')) {
                     name += ' (Embed)';
                 }
 
                 return {
-                    url: url,
                     name: name,
-                    title: name
+                    title: name,
+                    url: url
                 };
             });
 
-            console.log(`[HANDLER] Returning ${streams.length} streams`);
+            console.log(`[HANDLER] Returning ${streams.length} stream(s)`);
+            streams.forEach((s, i) => console.log(`[HANDLER] Stream ${i + 1}:`, s.name, '-', s.url.substring(0, 60) + '...'));
+            
             return { streams: streams };
             
         } catch (error) {
-            console.error('[HANDLER] Stream handler error:', error.message);
-            return { streams: [] };
+            console.error('[HANDLER] CRITICAL ERROR:', error.message);
+            console.error('[HANDLER] Stack trace:', error.stack);
+            
+            return { 
+                streams: [{
+                    name: '❌ Hata Oluştu',
+                    title: error.message,
+                    url: BASE_URL
+                }]
+            };
         }
     }
 
+    console.log('[HANDLER] Request rejected - invalid type or ID');
     return { streams: [] };
 });
 
