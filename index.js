@@ -173,5 +173,5 @@ addonInterface.defineStreamHandler(async ({ type, id }) => {
     return { streams };
 });
 
-serveHTTP(addonInterface, { port: 7000 });
+serveHTTP(addonInterface.getInterface(), { port: 7000 });
 console.log("Addon running on http://localhost:7000");
