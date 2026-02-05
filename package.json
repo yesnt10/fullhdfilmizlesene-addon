@@ -1,21 +1,16 @@
 {
-  "name": "fullhdfilmizlesene-stremio-addon",
+  "name": "stremio-fullhdfilm-addon",
   "version": "1.0.0",
-  "description": "Stremio addon for fullhdfilmizlesene.tv",
+  "description": "FullHDFilmizlesene Stremio Addon",
   "main": "addon.js",
+  "type": "module",
   "scripts": {
     "start": "node addon.js"
   },
-  "keywords": [
-    "stremio",
-    "addon",
-    "streaming"
-  ],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
-    "stremio-addon-sdk": "^1.6.10",
-    "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12"
+    "axios": "^1.7.0",
+    "cheerio": "^1.0.0",
+    "express": "^4.19.2",
+    "stremio-addon-sdk": "^1.6.10"
   }
 }
