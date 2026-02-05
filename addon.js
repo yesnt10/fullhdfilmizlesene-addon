@@ -129,14 +129,20 @@ async function fetchMovieCatalog(skip = 0) {
                         
                         // Duplicate kontrolü
                         if (!movies.find(m => m.id === id)) {
-                            movies.push({
+                            const movieMeta = {
                                 id: id,
                                 type: 'movie',
                                 name: title,
-                                poster: fullPoster,
+                                poster: fullPoster || 'https://via.placeholder.com/300x450?text=Film',
                                 posterShape: 'poster',
+                                background: fullPoster || undefined,
+                                logo: undefined,
+                                description: title,
+                                releaseInfo: new Date().getFullYear().toString(),
                                 links: [fullUrl]
-                            });
+                            };
+                            
+                            movies.push(movieMeta);
                             
                             console.log(`[CATALOG] Added movie: ${title}`);
                         }
@@ -263,7 +269,17 @@ builder.defineCatalogHandler(async (args) => {
         if (skip === 0 && catalogCache.data.length > 0 && 
             (Date.now() - catalogCache.timestamp) < catalogCache.ttl) {
             console.log('[HANDLER] Returning cached catalog');
-            return { metas: catalogCache.data };
+            const metas = catalogCache.data.map(m => ({
+                id: m.id,
+                type: m.type,
+                name: m.name,
+                poster: m.poster,
+                posterShape: m.posterShape,
+                background: m.background,
+                description: m.description,
+                releaseInfo: m.releaseInfo
+            }));
+            return { metas: metas };
         }
         
         const movies = await fetchMovieCatalog(skip);
@@ -282,7 +298,20 @@ builder.defineCatalogHandler(async (args) => {
         }
         
         console.log(`[HANDLER] Returning ${movies.length} movies`);
-        return { metas: movies };
+        
+        // Stremio için sadece gerekli alanları dön
+        const metas = movies.map(m => ({
+            id: m.id,
+            type: m.type,
+            name: m.name,
+            poster: m.poster,
+            posterShape: m.posterShape,
+            background: m.background,
+            description: m.description,
+            releaseInfo: m.releaseInfo
+        }));
+        
+        return { metas: metas };
     }
 
     return { metas: [] };
