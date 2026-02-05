@@ -1,0 +1,14 @@
+{
+  "name": "stremio-fullhdfilmizlesene",
+  "version": "1.0.0",
+  "description": "Stremio addon for fullhdfilmizlesene.tv",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "stremio-addon-sdk": "^1.6.10",
+    "puppeteer": "^21.6.1"
+  }
+}
