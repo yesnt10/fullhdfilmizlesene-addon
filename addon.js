@@ -19,7 +19,7 @@ const manifest = {
 const builder = new addonBuilder(manifest);
 
 const BASE_URL = 'https://www.hdfilmizle.to';
-const SKIP_PATH_PARTS = ['tur', 'yil', 'ulke', 'turkce-dublaj', 'turkce-altyazili', 'giris', 'kayit', 'ara', 'search', 'tag', 'etiket', 'sayfa', 'page', 'wp-', 'feed', 'author', 'category', 'film-robot', 'dizi-robot', 'yabanci-dizi-izle', 'en-cok-izlenenler', 'imdb-puani', 'mobil-uygulama', 'iletisim', 'hakkinda', 'reklam', 'gizlilik', 'kullanim', 'film-istekleri', 'istek'];
+const SKIP_PATH_PARTS = ['tur', 'yil', 'ulke', 'turkce-dublaj', 'turkce-altyazili', 'giris', 'kayit', 'ara', 'search', 'tag', 'etiket', 'sayfa', 'page', 'wp-', 'feed', 'author', 'category', 'film-robot', 'dizi-robot', 'yabanci-dizi-izle', 'en-cok-izlenen', 'imdb-puani', 'mobil-uygulama', 'iletisim', 'hakkinda', 'reklam', 'gizlilik', 'kullanim', 'film-istekleri', 'istek', 'android-apk'];
 
 const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -66,10 +66,8 @@ async function fetchCatalogFromHome(type) {
 
         const $ = cheerio.load(res.data);
 
-        const $root = $('main, #content, .content, .site-content, [class*="main"], [class*="film-list"], [class*="movie-list"], .archive').first();
-        const $links = $root.length ? $root.find('a[href]') : $('a[href]');
-
-        $links.each((_, el) => {
+        /* Tüm sayfadaki linkleri tara; film/dizi grid bazen main dışında olabiliyor */
+        $('a[href]').each((_, el) => {
             let href = $(el).attr('href') || '';
             href = href.trim().replace(/\/+$/, '');
             if (!href || href === '#' || href === '/') return;
@@ -114,12 +112,15 @@ async function fetchCatalogFromHome(type) {
                 poster = parent.find('img').first().attr('src') || parent.find('img').first().attr('data-src');
             }
             if (poster && !poster.startsWith('http') && !poster.startsWith('data:')) poster = BASE_URL + poster;
+            if (!poster || poster.includes('data:image/svg')) {
+                poster = 'https://stremio.github.io/stremio-art/placeholder.png';
+            }
 
             items.push({
                 id: toMetaId(norm),
                 type: type,
                 name: name,
-                poster: poster || undefined,
+                poster: poster,
                 posterShape: 'poster'
             });
         });
@@ -301,13 +302,17 @@ async function getStreamLinks(pageUrl) {
 }
 
 builder.defineCatalogHandler(async (args) => {
-    if (args.type === 'movie' && args.id === 'hdfilmizle-movies') {
-        const metas = await fetchCatalogFromHome('movie');
-        return { metas };
-    }
-    if (args.type === 'series' && args.id === 'hdfilmizle-series') {
-        const metas = await fetchCatalogFromHome('series');
-        return { metas };
+    try {
+        if (args.type === 'movie' && args.id === 'hdfilmizle-movies') {
+            const metas = await fetchCatalogFromHome('movie');
+            return { metas: Array.isArray(metas) ? metas : [] };
+        }
+        if (args.type === 'series' && args.id === 'hdfilmizle-series') {
+            const metas = await fetchCatalogFromHome('series');
+            return { metas: Array.isArray(metas) ? metas : [] };
+        }
+    } catch (e) {
+        console.error('Catalog handler error:', e.message);
     }
     return { metas: [] };
 });
