@@ -96,21 +96,14 @@ stremio-hdfilmizle/
 
 ### Kod Yapısı
 
-- **manifest**: Eklenti bilgileri ve yetenekleri
-- **fetchCatalog()**: Film/dizi listesini çeker
-- **getStreamLinks()**: Stream linklerini bulur
+- **manifest**: Eklenti bilgileri (catalog, meta, stream)
+- **fetchCatalogFromHome()**: Ana sayfadan film/dizi listesini çeker
+- **fetchSeriesMeta()**: Dizi sayfasından sezon/bölüm listesini çıkarır
+- **fetchMovieMeta()**: Film sayfasından meta bilgisi çeker
+- **getStreamLinks()**: İzleme sayfasından iframe/m3u8 ve DUAL linklerini bulur
 - **defineCatalogHandler()**: Katalog isteklerini işler
+- **defineMetaHandler()**: Film/dizi detay ve (diziler için) bölüm listesini döner
 - **defineStreamHandler()**: Stream isteklerini işler
-
-### Özelleştirme
-
-Sitenin HTML yapısına göre selector'ları güncelleyin:
-
-```javascript
-$('.movie-item, .film-item, article, .item').each((i, element) => {
-    // Selector'ları sitenize göre ayarlayın
-});
-```
 
 ## ⚠️ Önemli Notlar
 
