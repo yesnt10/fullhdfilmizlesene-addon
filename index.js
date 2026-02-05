@@ -1,177 +1,253 @@
-const { serveHTTP } = require("stremio-addon-sdk");
-const addonInterface = require("./addon");
-const puppeteer = require("puppeteer");
+const { addonBuilder, serveHTTP, publishToCentral } = require('stremio-addon-sdk');
+const axios = require('axios');
+const cheerio = require('cheerio');
 
-let browser;
-
-async function getBrowser() {
-    if (!browser) {
-        console.log("Launching browser...");
-        browser = await puppeteer.launch({
-            headless: "new",
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu'
+const builder = new addonBuilder({
+    id: 'org.fullhdfilmizlesene',
+    version: '1.0.0',
+    name: 'FullHDFilmizlesene',
+    description: 'fullhdfilmizlesene.tv sitesinden Türkçe filmler',
+    resources: ['catalog', 'stream'],
+    types: ['movie'],
+    idPrefixes: ['fhdf'],
+    catalogs: [
+        {
+            type: 'movie',
+            id: 'fullhdfilmizlesene',
+            name: 'FullHD Filmizlesene',
+            extra: [
+                { name: 'search', isRequired: false },
+                { name: 'genre', isRequired: false },
+                { name: 'skip', isRequired: false }
             ]
-        });
-        
-        // Handle browser disconnect/crash
-        browser.on('disconnected', () => {
-            console.log("Browser disconnected, clearing instance...");
-            browser = null;
-        });
-    }
-    return browser;
-}
-
-async function scrapeCatalog(url) {
-    const b = await getBrowser();
-    const page = await b.newPage();
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-    
-    try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        
-        const movies = await page.evaluate(() => {
-            const items = [];
-            // Selectors based on site structure
-            document.querySelectorAll("a[href^='https://www.fullhdfilmizlesene.tv/film/']").forEach(el => {
-                const img = el.querySelector("img");
-                if (img) {
-                    const href = el.href;
-                    const title = img.alt || el.title || el.innerText;
-                    const poster = img.src || img.dataset.src;
-                    
-                    const match = href.match(/\/film\/([^/]+)\/?/);
-                    if (match && title) {
-                        items.push({
-                            id: "fhf:" + match[1],
-                            type: "movie",
-                            name: title.trim(),
-                            poster: poster,
-                            description: title.trim()
-                        });
-                    }
-                }
-            });
-            return items;
-        });
-        
-        return movies;
-    } catch (e) {
-        console.error("Scrape error:", e);
-        return [];
-    } finally {
-        await page.close();
-    }
-}
-
-async function scrapeStream(slug) {
-    const url = `https://www.fullhdfilmizlesene.tv/film/${slug}/`;
-    const b = await getBrowser();
-    const page = await b.newPage();
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-    
-    let videoUrl = null;
-    const streams = [];
-
-    // Intercept requests to find m3u8/mp4
-    await page.setRequestInterception(true);
-    page.on('request', req => {
-        const rUrl = req.url();
-        if (rUrl.includes('.m3u8') || rUrl.includes('.mp4')) {
-            console.log("Found video URL:", rUrl);
-            streams.push({
-                title: "Auto Detected",
-                url: rUrl
-            });
         }
-        req.continue();
-    });
+    ]
+});
 
+// Film meta verilerini çekme
+async function getMovies(page = 1, search = null, genre = null) {
     try {
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        let url = 'https://www.fullhdfilmizlesene.tv/film-izle/';
         
-        // Also check for iframes
-        const iframes = await page.evaluate(() => {
-            const frames = [];
-            document.querySelectorAll("iframe").forEach(f => {
-                if (f.src) frames.push(f.src);
-                if (f.dataset.src) frames.push(f.dataset.src);
-            });
-            return frames;
+        if (search) {
+            url = `https://www.fullhdfilmizlesene.tv/?s=${encodeURIComponent(search)}`;
+        } else if (genre) {
+            url = `https://www.fullhdfilmizlesene.tv/tur/${genre}/`;
+        } else if (page > 1) {
+            url = `https://www.fullhdfilmizlesene.tv/film-izle/page/${page}/`;
+        }
+        
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
         });
-
-        iframes.forEach((src, i) => {
-            if (src && !src.includes("youtube") && !src.includes("google")) {
-                streams.push({
-                    title: "Stream " + (i + 1),
-                    url: src,
-                    behaviorHints: { notWebReady: true }
+        
+        const $ = cheerio.load(response.data);
+        const movies = [];
+        
+        $('.moviefilm').each((i, element) => {
+            const $element = $(element);
+            const title = $element.find('.movief .title').text().trim();
+            const movieUrl = $element.find('a').attr('href');
+            const poster = $element.find('img').attr('src');
+            const yearMatch = title.match(/\((\d{4})\)/);
+            const year = yearMatch ? yearMatch[1] : '2023';
+            
+            if (title && movieUrl && poster) {
+                const id = movieUrl.split('/').filter(Boolean).pop();
+                
+                movies.push({
+                    id: `fhdf${id}`,
+                    type: 'movie',
+                    name: title.replace(/\(\d{4}\)/, '').trim(),
+                    poster: poster,
+                    posterShape: 'regular',
+                    background: poster,
+                    description: `Film - ${title}`,
+                    releaseInfo: year,
+                    genres: getGenres($element)
                 });
             }
         });
-
-    } catch (e) {
-        console.error("Stream scrape error:", e);
-    } finally {
-        await page.close();
+        
+        return movies;
+    } catch (error) {
+        console.error('Film çekme hatası:', error.message);
+        return [];
     }
-    
-    return streams;
 }
 
-// Catalog Handler
-addonInterface.defineCatalogHandler(async ({ type, id, extra }) => {
-    if (type !== "movie") return { metas: [] };
+function getGenres($element) {
+    const genres = [];
+    const genreText = $element.find('.movief .category').text();
     
-    let url = "https://www.fullhdfilmizlesene.tv/yeni-filmler/";
-    if (extra.search) {
-        url = `https://www.fullhdfilmizlesene.tv/ara/?q=${encodeURIComponent(extra.search)}`;
+    if (genreText.includes('Aksiyon')) genres.push('Aksiyon');
+    if (genreText.includes('Macera')) genres.push('Macera');
+    if (genreText.includes('Komedi')) genres.push('Komedi');
+    if (genreText.includes('Dram')) genres.push('Drama');
+    if (genreText.includes('Korku')) genres.push('Korku');
+    if (genreText.includes('Romantik')) genres.push('Romantik');
+    if (genreText.includes('Bilim Kurgu')) genres.push('Bilim Kurgu');
+    if (genreText.includes('Gerilim')) genres.push('Gerilim');
+    if (genreText.includes('Savaş')) genres.push('Savaş');
+    if (genreText.includes('Animasyon')) genres.push('Animasyon');
+    
+    return genres.length > 0 ? genres : ['Film'];
+}
+
+// Stream linklerini çekme
+async function getStreams(id) {
+    try {
+        const movieId = id.replace('fhdf', '');
+        const url = `https://www.fullhdfilmizlesene.tv/${movieId}/`;
+        
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+        
+        const $ = cheerio.load(response.data);
+        const streams = [];
+        
+        // Video iframelerini bul
+        $('iframe').each((i, element) => {
+            const src = $(element).attr('src');
+            if (src && (src.includes('youtube') || src.includes('vimeo') || src.includes('dailymotion') || src.includes('openload'))) {
+                streams.push({
+                    url: src,
+                    title: `Kaynak ${i + 1}`,
+                    name: `Kaynak ${i + 1}`
+                });
+            }
+        });
+        
+        // Video embed scriptlerini kontrol et
+        const html = response.data;
+        const videoRegex = /(https?:\/\/[^\s"'<>]+\.(mp4|m3u8|webm|mkv))(?=["'&?\s])/gi;
+        const videoMatches = html.match(videoRegex);
+        
+        if (videoMatches) {
+            videoMatches.forEach((url, i) => {
+                streams.push({
+                    url: url,
+                    title: `Direct Stream ${i + 1}`,
+                    name: `Direct ${i + 1}`
+                });
+            });
+        }
+        
+        // Eğer stream bulunamazsa, alternatif yöntem
+        if (streams.length === 0) {
+            // Film adını al
+            const title = $('h1').first().text().trim();
+            
+            // Alternatif stream için YouTube araması yap
+            const searchQuery = encodeURIComponent(`${title} full film izle Türkçe dublaj`);
+            streams.push({
+                url: `https://www.youtube.com/results?search_query=${searchQuery}`,
+                title: `YouTube'da Ara: ${title}`,
+                name: 'YouTube',
+                ytSearch: true
+            });
+        }
+        
+        return streams;
+    } catch (error) {
+        console.error('Stream çekme hatası:', error.message);
+        return [];
+    }
+}
+
+// Catalog handler
+builder.defineCatalogHandler(async ({ type, id, extra }) => {
+    if (type !== 'movie') return { metas: [] };
+    
+    try {
+        const page = extra && extra.skip ? Math.floor(extra.skip / 20) + 1 : 1;
+        const search = extra && extra.search ? extra.search : null;
+        const genre = extra && extra.genre ? extra.genre : null;
+        
+        const metas = await getMovies(page, search, genre);
+        
+        return {
+            metas: metas,
+            cacheMaxAge: 60 * 60, // 1 saat cache
+            staleRevalidate: 60 * 60,
+            staleError: 24 * 60 * 60
+        };
+    } catch (error) {
+        console.error('Catalog hatası:', error);
+        return { metas: [] };
+    }
+});
+
+// Stream handler
+builder.defineStreamHandler(async ({ type, id }) => {
+    if (type !== 'movie' || !id.startsWith('fhdf')) {
+        return { streams: [] };
     }
     
-    const metas = await scrapeCatalog(url);
-    // Deduplicate
-    const uniqueMetas = Array.from(new Map(metas.map(m => [m.id, m])).values());
-    return { metas: uniqueMetas };
+    try {
+        const streams = await getStreams(id);
+        
+        // Stremio formatına çevir
+        const stremioStreams = streams.map((stream, index) => ({
+            url: stream.url,
+            title: stream.title,
+            name: stream.name || `Kaynak ${index + 1}`
+        }));
+        
+        return {
+            streams: stremioStreams,
+            cacheMaxAge: 24 * 60 * 60, // 24 saat cache
+            staleRevalidate: 24 * 60 * 60
+        };
+    } catch (error) {
+        console.error('Stream handler hatası:', error);
+        return { streams: [] };
+    }
 });
 
-// Meta Handler
-addonInterface.defineMetaHandler(async ({ type, id }) => {
-    if (type !== "movie" || !id.startsWith("fhf:")) return { meta: {} };
-    // Reuse catalog logic or fetch specific page
-    // For speed, we can just return basic info if we have it, but here we fetch
-    const slug = id.split(":")[1];
-    const url = `https://www.fullhdfilmizlesene.tv/film/${slug}/`;
-    
-    // We can use scrapeCatalog logic but for a single page if needed, 
-    // but for now let's just return what we can or implement a specific meta scraper
-    // For simplicity, we'll return a basic meta object. 
-    // To get full details we'd need to scrape the movie page.
-    
-    return {
-        meta: {
-            id: id,
-            type: "movie",
-            name: slug.replace(/-/g, " "), // Fallback name
-            description: "Watch on fullhdfilmizlesene.tv"
+// Manifest tanımı
+const manifest = {
+    id: 'org.fullhdfilmizlesene',
+    version: '1.0.0',
+    name: 'FullHDFilmizlesene',
+    description: 'fullhdfilmizlesene.tv sitesinden Türkçe filmler',
+    resources: ['catalog', 'stream'],
+    types: ['movie'],
+    idPrefixes: ['fhdf'],
+    catalogs: [
+        {
+            type: 'movie',
+            id: 'fullhdfilmizlesene',
+            name: 'FullHD Filmizlesene',
+            extra: [
+                { name: 'search', isRequired: false },
+                { name: 'genre', isRequired: false },
+                { name: 'skip', isRequired: false }
+            ]
         }
-    };
+    ]
+};
+
+// HTTP sunucusu başlatma
+async function startServer() {
+    const addonInterface = builder.getInterface();
+    
+    const { server, port } = await serveHTTP(addonInterface, { port: 7000 });
+    
+    console.log(`Eklenti http://localhost:${port}/manifest.json adresinde çalışıyor`);
+    
+    // Merkeze yayınlamak için (opsiyonel)
+    // await publishToCentral('https://your-deployment-url/manifest.json');
+}
+
+// Hata yakalama
+process.on('unhandledRejection', (error) => {
+    console.error('İşlenmemiş hata:', error);
 });
 
-// Stream Handler
-addonInterface.defineStreamHandler(async ({ type, id }) => {
-    if (type !== "movie" || !id.startsWith("fhf:")) return { streams: [] };
-    const slug = id.split(":")[1];
-    const streams = await scrapeStream(slug);
-    return { streams };
-});
-
-serveHTTP(addonInterface.getInterface(), { port: 7000 });
-console.log("Addon running on http://localhost:7000");
+startServer().catch(console.error);
